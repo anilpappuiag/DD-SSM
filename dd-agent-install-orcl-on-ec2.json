@@ -1,0 +1,149 @@
+{
+  "schemaVersion": "2.2",
+  "description": "Install and configure Datadog Agent for Oracle on EC2 with DBM monitoring enabled, including creation of the dd_session view.",
+  "assumeRole": "{{ AutomationAssumeRole }}",
+  "parameters": {
+    "ApiKey": {
+      "type": "String",
+      "description": "(Required) Datadog API Key stored in AWS Parameter Store.",
+      "default": "/datadog/apikey"
+    },
+    "DBUsername": {
+      "type": "String",
+      "description": "(Required) Datadog read-only database username stored in AWS Parameter Store.",
+      "default": "/datadog/dbm/maestro/username"
+    },
+    "DBPassword": {
+      "type": "String",
+      "description": "(Required) Datadog read-only database password stored in AWS Parameter Store.",
+      "default": "/datadog/dbm/maestro/password"
+    },
+    "DBServiceName": {
+      "type": "String",
+      "description": "(Required) Oracle database service name.",
+      "default": "ORCL"
+    },
+    "DBAdminUsername": {
+      "type": "String",
+      "description": "(Required) Admin username for Oracle database.",
+      "default": "sys"
+    },
+    "DBAdminPassword": {
+      "type": "String",
+      "description": "(Required) Admin password for Oracle database stored in AWS Parameter Store.",
+      "default": "/datadog/dbm/admin/password"
+    },
+    "AgentVersion": {
+      "type": "String",
+      "description": "(Optional) Version of the Datadog Agent to install.",
+      "default": "latest"
+    },
+    "Region": {
+      "type": "String",
+      "description": "(Required) AWS region.",
+      "default": "us-east-1"
+    }
+  },
+  "mainSteps": [
+    {
+      "action": "aws:runShellScript",
+      "name": "installDatadogAgent",
+      "inputs": {
+        "runCommand": [
+          "#!/bin/bash",
+          "set -e",
+          "echo \"Starting Datadog Agent installation...\"",
+          "# Install required dependencies",
+          "if [ -f /etc/os-release ]; then",
+          "  source /etc/os-release",
+          "  if [[ $ID == \"amzn\" || $ID_LIKE == *\"rhel\"* ]]; then",
+          "    sudo yum install -y curl wget",
+          "  elif [[ $ID_LIKE == *\"debian\"* ]]; then",
+          "    sudo apt-get update",
+          "    sudo apt-get install -y curl wget",
+          "  else",
+          "    echo \"Unsupported OS. Exiting.\" >&2",
+          "    exit 1",
+          "  fi",
+          "else",
+          "  echo \"OS not detected. Exiting.\" >&2",
+          "  exit 1",
+          "fi",
+          "# Add Datadog's package repository",
+          "DD_AGENT_MAJOR_VERSION=7",
+          "DD_API_KEY=$(aws ssm get-parameter --name {{ ApiKey }} --with-decryption --query Parameter.Value --output text --region {{ Region }})",
+          "DD_DB_USER=$(aws ssm get-parameter --name {{ DBUsername }} --with-decryption --query Parameter.Value --output text --region {{ Region }})",
+          "DD_DB_PASSWORD=$(aws ssm get-parameter --name {{ DBPassword }} --with-decryption --query Parameter.Value --output text --region {{ Region }})",
+          "if [[ $ID == \"amzn\" || $ID_LIKE == *\"rhel\"* ]]; then",
+          "  sudo rpm --import https://keys.datadoghq.com/DATADOG_RPM_KEY_B01082D3.public",
+          "  echo \"[datadog]\" | sudo tee /etc/yum.repos.d/datadog.repo",
+          "  echo \"name=Datadog RPM packages for Enterprise Linux\" | sudo tee -a /etc/yum.repos.d/datadog.repo",
+          "  echo \"baseurl=https://yum.datadoghq.com/stable/${DD_AGENT_MAJOR_VERSION}/x86_64/\" | sudo tee -a /etc/yum.repos.d/datadog.repo",
+          "  echo \"enabled=1\" | sudo tee -a /etc/yum.repos.d/datadog.repo",
+          "  echo \"gpgcheck=1\" | sudo tee -a /etc/yum.repos.d/datadog.repo",
+          "  echo \"gpgkey=https://keys.datadoghq.com/DATADOG_RPM_KEY_B01082D3.public\" | sudo tee -a /etc/yum.repos.d/datadog.repo",
+          "  sudo yum install -y datadog-agent",
+          "elif [[ $ID_LIKE == *\"debian\"* ]]; then",
+          "  DD_INSTALL_ONLY=true DD_AGENT_MAJOR_VERSION=${DD_AGENT_MAJOR_VERSION} bash -c \"$(curl -L https://s3.amazonaws.com/dd-agent/scripts/install_script.sh)\"",
+          "else",
+          "  echo \"Unsupported OS. Exiting.\" >&2",
+          "  exit 1",
+          "fi",
+          "# Configure Datadog Agent",
+          "sudo sh -c 'echo \"api_key: $DD_API_KEY\" >> /etc/datadog-agent/datadog.yaml'",
+          "sudo sh -c 'echo \"site: datadoghq.eu\" >> /etc/datadog-agent/datadog.yaml'",
+          "sudo sh -c 'echo \"process_config:\" >> /etc/datadog-agent/datadog.yaml'",
+          "sudo sh -c 'echo \"  enabled: true\" >> /etc/datadog-agent/datadog.yaml'",
+          "sudo sh -c 'echo \"dbm:\" >> /etc/datadog-agent/datadog.yaml'",
+          "sudo sh -c 'echo \"  instances:\" >> /etc/datadog-agent/datadog.yaml'",
+          "sudo sh -c 'echo \"    - server: \\\"{{ DBServiceName }}\\\"\" >> /etc/datadog-agent/datadog.yaml'",
+          "sudo sh -c 'echo \"      user: \\\"$DD_DB_USER\\\"\" >> /etc/datadog-agent/datadog.yaml'",
+          "sudo sh -c 'echo \"      password: \\\"$DD_DB_PASSWORD\\\"\" >> /etc/datadog-agent/datadog.yaml'",
+          "# Restart Datadog Agent",
+          "sudo systemctl restart datadog-agent",
+          "echo \"Datadog Agent installation completed successfully.\""
+        ]
+      }
+    },
+    {
+      "action": "aws:runShellScript",
+      "name": "createDDSessionView",
+      "inputs": {
+        "runCommand": [
+          "#!/bin/bash",
+          "set -e",
+          "echo \"Starting creation of dd_session view...\"",
+          "# Fetch database admin credentials",
+          "DB_ADMIN_PASSWORD=$(aws ssm get-parameter --name {{ DBAdminPassword }} --with-decryption --query Parameter.Value --output text --region {{ Region }})",
+          "# Create the dd_session view and Datadog user",
+          "sqlplus {{ DBAdminUsername }}/$DB_ADMIN_PASSWORD@{{ DBServiceName }} as sysdba <<EOF",
+          "CREATE USER {{ DBUsername }} IDENTIFIED BY '{{ DBPassword }}';",
+          "GRANT CREATE SESSION TO {{ DBUsername }};",
+          "GRANT SELECT ON v_$session TO {{ DBUsername }};",
+          "CREATE OR REPLACE VIEW dd_session AS",
+          "SELECT /*+ push_pred(sq) push_pred(sq_prev) */",
+          "  s.indx AS sid,",
+          "  s.ksuseser AS serial#,",
+          "  s.ksuudlna AS username",
+          "FROM",
+          "  x$ksuse s;",
+          "GRANT SELECT ON dd_session TO {{ DBUsername }};",
+          "EOF",
+          "echo \"dd_session view created successfully.\""
+        ]
+      }
+    },
+    {
+      "action": "aws:runShellScript",
+      "name": "validateAgentInstallation",
+      "inputs": {
+        "runCommand": [
+          "#!/bin/bash",
+          "echo \"Validating Datadog Agent installation...\"",
+          "sudo datadog-agent status || { echo \"Datadog Agent is not running correctly. Exiting.\"; exit 1; }",
+          "echo \"Datadog Agent validation completed successfully.\""
+        ]
+      }
+    }
+  ]
+}
