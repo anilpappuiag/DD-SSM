@@ -24,6 +24,11 @@
     "DD_ENV": {
       "type": "String",
       "description": "Datadog environment (e.g., production, staging)."
+    },
+     "DD_TAGS": {
+      "type": "String",
+      "default": "",
+      "description": "Optional tags to categorize the host in Datadog"
     }
   },
   "mainSteps": [
