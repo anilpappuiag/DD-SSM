@@ -1,52 +1,53 @@
 {
   "schemaVersion": "2.2",
-  "description": "Install Datadog Agent with inputs for API key, site, APM instrumentation, and environment.",
+  "description": "Install Datadog Agent with inputs for API key, site, APM instrumentation, environment, and optional tags.",
   "parameters": {
-    "DD_API_KEY": {
+    "DDAPIKEY": {
       "type": "String",
-      "description": "Datadog API Key"
+      "description": "Datadog API Key (Required)"
     },
-    "DD_SITE": {
+    "DDSITE": {
       "type": "String",
       "default": "datadoghq.eu",
       "description": "Datadog site (e.g., datadoghq.com or datadoghq.eu)"
     },
-    "DD_APM_INSTRUMENTATION_ENABLED": {
+    "DDAPMINSTRUMENTATION": {
       "type": "String",
       "default": "host",
-      "description": "APM instrumentation type (default is host)."
+      "description": "APM instrumentation type (e.g., host or container)."
     },
-    "DD_APM_INSTRUMENTATION_LIBRARIES": {
+    "DDAPMLIBRARIES": {
       "type": "String",
       "default": "java:1,python:2,js:5,dotnet:3",
       "description": "APM libraries to enable with version mappings."
     },
-    "DD_ENV": {
+    "DDENV": {
       "type": "String",
       "description": "Datadog environment (e.g., production, staging)."
     },
-     "DD_TAGS": {
+    "DDTAGS": {
       "type": "String",
       "default": "",
-      "description": "Optional tags to categorize the host in Datadog"
+      "description": "Optional tags to categorize the host in Datadog (comma-separated, e.g., 'team:web,env:prod')."
     }
   },
   "mainSteps": [
     {
-      "action": "aws:runCommand",
+      "action": "aws:runShellScript",
       "name": "InstallDatadogAgent",
       "inputs": {
-        "DocumentName": "AWS-RunShellScript",
-        "Parameters": {
-          "commands": [
-            "DD_API_KEY='{{ DD_API_KEY }}'",
-            "DD_SITE='{{ DD_SITE }}'",
-            "DD_APM_INSTRUMENTATION_ENABLED='{{ DD_APM_INSTRUMENTATION_ENABLED }}'",
-            "DD_APM_INSTRUMENTATION_LIBRARIES='{{ DD_APM_INSTRUMENTATION_LIBRARIES }}'",
-            "DD_ENV='{{ DD_ENV }}'",
-            "bash -c \"$(curl -L https://install.datadoghq.com/scripts/install_script_agent7.sh)\""
-          ]
-        }
+        "runCommand": [
+          "DD_API_KEY='{{ DDAPIKEY }}'",
+          "if [[ -z \"$DD_API_KEY\" ]]; then echo \"Error: DD_API_KEY is required.\"; exit 1; fi",
+          "DD_SITE='{{ DDSITE }}'",
+          "DD_APM_INSTRUMENTATION_ENABLED='{{ DDAPMINSTRUMENTATION }}'",
+          "DD_APM_INSTRUMENTATION_LIBRARIES='{{ DDAPMLIBRARIES }}'",
+          "DD_ENV='{{ DDENV }}'",
+          "DD_TAGS='{{ DDTAGS }}'",
+          "bash -c \"$(curl -L https://install.datadoghq.com/scripts/install_script_agent7.sh)\"",
+          "if [[ $? -ne 0 ]]; then echo \"Error: Datadog Agent installation failed.\"; exit 1; fi",
+          "echo \"Datadog Agent installation completed successfully.\""
+        ]
       }
     }
   ]
