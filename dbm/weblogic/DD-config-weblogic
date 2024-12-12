@@ -1,0 +1,149 @@
+{
+  "schemaVersion": "2.2",
+  "description": "Enable JMX Remote Monitoring with SSL for WebLogic and integrate with Datadog.",
+  "parameters": {
+    "JMXPort": {
+      "type": "String",
+      "description": "JMX connection port.",
+      "default": "9010"
+    },
+    "KeyStorePath": {
+      "type": "String",
+      "description": "Path to the keystore."
+    },
+    "KeyStorePassword": {
+      "type": "String",
+      "description": "Password for the keystore."
+    },
+    "TrustStorePath": {
+      "type": "String",
+      "description": "Path to the truststore."
+    },
+    "TrustStorePassword": {
+      "type": "String",
+      "description": "Password for the truststore."
+    },
+    "DatadogUser": {
+      "type": "String",
+      "description": "Datadog monitoring user.",
+      "default": "datadog_user"
+    },
+    "DatadogPassword": {
+      "type": "String",
+      "description": "Password for Datadog user."
+    },
+    "JavaBinPath": {
+      "type": "String",
+      "description": "Path to the Java binary.",
+      "default": "/path/to/java"
+    }
+  },
+  "mainSteps": [
+    {
+      "action": "aws:runShellScript",
+      "name": "EnableJMXMonitoring",
+      "inputs": {
+        "runCommand": [
+          "#!/bin/bash",
+          "echo 'Enabling JMX Remote Monitoring with SSL...'",
+          "JAVA_OPTIONS=\"-Dcom.sun.management.jmxremote \\",
+          "-Dcom.sun.management.jmxremote.port={{JMXPort}} \\",
+          "-Dcom.sun.management.jmxremote.authenticate=true \\",
+          "-Dcom.sun.management.jmxremote.ssl=true \\",
+          "-Djavax.net.ssl.keyStore={{KeyStorePath}} \\",
+          "-Djavax.net.ssl.keyStorePassword={{KeyStorePassword}} \\",
+          "-Djavax.net.ssl.trustStore={{TrustStorePath}} \\",
+          "-Djavax.net.ssl.trustStorePassword={{TrustStorePassword}}\"",
+          "echo 'Updated JAVA_OPTIONS: $JAVA_OPTIONS'",
+          "echo 'Add this JAVA_OPTIONS configuration to your WebLogic Server startup script.'"
+        ]
+      }
+    },
+    {
+      "action": "aws:runShellScript",
+      "name": "CreateDatadogUser",
+      "inputs": {
+        "runCommand": [
+          "#!/bin/bash",
+          "echo 'Access the WebLogic Administration Console and create a Datadog user.'",
+          "echo 'Ensure the user has read-only permissions for monitoring and is part of the appropriate group.'",
+          "echo 'Datadog user: {{DatadogUser}}'"
+        ]
+      }
+    },
+    {
+      "action": "aws:runShellScript",
+      "name": "TestJMXAccess",
+      "inputs": {
+        "runCommand": [
+          "#!/bin/bash",
+          "echo 'Testing JMX Access with SSL...'",
+          "echo 'Use a JMX client (e.g., jconsole) to connect to the WebLogic server.'",
+          "echo 'Provide the JMX port: {{JMXPort}}, username: {{DatadogUser}}, and the configured password.'",
+          "echo 'Verify that the connection works and MBeans are accessible.'"
+        ]
+      }
+    },
+    {
+      "action": "aws:runShellScript",
+      "name": "EditDatadogConfig",
+      "inputs": {
+        "runCommand": [
+          "#!/bin/bash",
+          "echo 'Editing WebLogic configuration file for Datadog integration...'",
+          "sudo tee /etc/datadog-agent/conf.d/weblogic.d/conf.yaml > /dev/null << EOF",
+          "init_config:",
+          "",
+          "instances:",
+          "  - host: localhost",
+          "    port: {{JMXPort}}",
+          "    user: {{DatadogUser}}",
+          "    password: {{DatadogPassword}}",
+          "    java_bin_path: {{JavaBinPath}}",
+          "    trust_store_path: {{TrustStorePath}}",
+          "    trust_store_password: {{TrustStorePassword}}",
+          "    is_jmx: true",
+          "    tags:",
+          "      - env:production",
+          "      - app:weblogic",
+          "EOF",
+          "echo 'Configuration written to /etc/datadog-agent/conf.d/weblogic.d/conf.yaml.'"
+        ]
+      }
+    },
+    {
+      "action": "aws:runShellScript",
+      "name": "RestartDatadogAgent",
+      "inputs": {
+        "runCommand": [
+          "#!/bin/bash",
+          "echo 'Restarting Datadog Agent to apply the configuration...'",
+          "sudo systemctl restart datadog-agent",
+          "if [ $? -eq 0 ]; then",
+          "  echo 'Datadog Agent restarted successfully.'",
+          "else",
+          "  echo 'Failed to restart Datadog Agent.' >&2",
+          "  exit 1",
+          "fi"
+        ]
+      }
+    },
+    {
+      "action": "aws:runShellScript",
+      "name": "VerifyDatadogIntegration",
+      "inputs": {
+        "runCommand": [
+          "#!/bin/bash",
+          "echo 'Verifying Datadog integration...'",
+          "sudo datadog-agent status | grep weblogic",
+          "if [ $? -eq 0 ]; then",
+          "  echo 'WebLogic check appears in Datadog Agent status.'",
+          "else",
+          "  echo 'WebLogic check is not appearing in Datadog Agent status. Please check configuration.'",
+          "  exit 1",
+          "fi"
+        ]
+      }
+    }
+  ]
+}
